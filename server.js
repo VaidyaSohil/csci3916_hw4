@@ -3,8 +3,12 @@ var bodyParser = require('body-parser');
 var passport = require('passport');
 var authJwtController = require('./auth_jwt');
 var User = require('./Users');
+var Review = require('./Reviews');
 var Movie = require('./Movies');
 var jwt = require('jsonwebtoken');
+var mongoose = require('mongoose');
+const crypto = require("crypto");
+var rp = require('request-promise');
 var cors = require('cors');
 
 var app = express();
@@ -16,6 +20,42 @@ app.use(bodyParser.urlencoded({ extended: false }));
 app.use(passport.initialize());
 
 var router = express.Router();
+
+//Google Analytics section
+const GA_TRACKING_ID = process.env.GA_KEY;
+
+function trackDimension(category, action, label, value, dimension, metric) {
+
+    var options = { method: 'GET',
+        url: 'https://www.google-analytics.com/collect',
+        qs:
+            {   // API Version.
+                v: '1',
+                // Tracking ID / Property ID.
+                tid: GA_TRACKING_ID,
+                // Random Client Identifier. Ideally, this should be a UUID that
+                // is associated with particular user, device, or browser instance.
+                cid: crypto.randomBytes(16).toString("hex"),
+                // Event hit type.
+                t: 'event',
+                // Event category.
+                ec: category,
+                // Event action.
+                ea: action,
+                // Event label.
+                el: label,
+                // Event value.
+                ev: value,
+                // Custom Dimension
+                cd1: dimension,
+                // Custom Metric
+                cm1: metric
+            },
+        headers:
+            {  'Cache-Control': 'no-cache' } };
+
+    return rp(options);
+}
 
 router.route('/postjwt')
     .post(authJwtController.isAuthenticated, function (req, res) {
@@ -102,13 +142,76 @@ router.post('/signin', function(req, res) {
 });
 
 
+router.route('/movies/:movieId')
+    .get(authJwtController.isAuthenticated, function (req, res) {
+        if (!req.body) {
+            res.status(403).json({ success: false, message: "Empty query." });
+        }else{
+            if (req.query.reviews === "true") {
+                var id = req.params.movieId;
+                Movie.aggregate()
+                    .match({_id: mongoose.Types.ObjectId(id)})
+                    .lookup({from: 'reviews', localField: '_id', foreignField: 'movie_id', as: 'reviews'})
+                    .exec(function (err, movie) {
+                        if (err) return res.send(err);
+                        if (movie && movie.length > 0) {
+                            return res.status(200).json({ success: true, result: movie });
+                        }else{
+                            return res.status(400).json({ success: false, message: "Movie not found." });
+                        }
+                        trackDimension(movie.genre, '/movies/:movieId?reviews=true', 'GET Movie', '1', movie.title, "1")
+                            .then(function (response) {
+                                console.log(response.body);
+                            })
+                    });
+            }else{
+                var id = req.params.movieId;
+                Movie.findById(id).select("title year genre actors").exec(function(err, movie) {
+                    if (err) res.send(err);
+                    if (movie) {
+                        return res.status(200).json({ success: true, result: movie });
+                    }else{
+                        return res.status(400).json({ success: false, message: "Movie not found." });
+                    }
+                    trackDimension(movie.genre, '/movies/:movieId', 'GET Movie', '1', movie.title, "1")
+                        .then(function (response) {
+                            console.log(response.body);
+                        })
+                });
+            }
+        }
+    })
+
+
 router.route('/movies')
     .get(authJwtController.isAuthenticated, function (req, res) {
-        Movie.find(function (err, movies) {
-            if (err) res.send(err);
-            // return the users
-            res.json(movies).status(200).end();
-        });
+        if (req.query.reviews === "true") {
+            Movie.aggregate()
+                .match(req.body)
+                .lookup({from: 'reviews', localField: '_id', foreignField: 'movie_id', as: 'reviews'})
+                .exec(function (err, movie) {
+                    if (err) return res.send(err);
+                    if (movie && movie.length > 0) {
+                        return res.status(200).json({ success: true, result: movie });
+                    }else{
+                        return res.status(400).json({ success: false, message: "Movie not found." });
+                    }
+                    trackDimension("ALL", '/movies/?reviews=true', 'GET Movies', '1', "ALL MOVIES", "1")
+                        .then(function (response) {
+                            console.log(response.body);
+                        })
+                });
+        }else{
+            Movie.find(function (err, movies) {
+                if (err) res.send(err);
+                // return the users
+                res.json(movies).status(200).end();
+            });
+            trackDimension("ALL", '/movies', 'GET Movies', '1', "ALL MOVIES", '1')
+                .then(function (response) {
+                    console.log(response.body);
+                })
+        }
     })
     .post(authJwtController.isAuthenticated, function(req, res) {
         if (!req.body.title || req.body.title === "" || !req.body.yearReleased || req.body.yearReleased === "" || !req.body.genre || req.body.genre === "" || !req.body.actors || req.body.actors === "") {
@@ -199,6 +302,51 @@ router.route('/movies')
             }
         }
     )
+
+
+//Reviews
+
+router.route('/reviews')
+    .post(authJwtController.isAuthenticated, function(req, res) {
+        if (!req.body || !req.body.movieId || !req.body.quote || !req.body.rating)
+            return res.json({success: false, message: 'Please pass MovieId, quote, and rating'}).status(400);
+        Movie.findById(req.body.movieId, function(err, movie) {
+            if (err) return res.status(400).json(err);
+            if (!movie || movie.length <= 0)
+                return res.status(400).json({ success: false, message: "Movie not found" });
+            var review = new Review();
+            review.quote = req.body.quote;
+            review.rating = req.body.rating;
+            review.movie_id = movie._id;
+            console.log(req.headers.authorization.substring(4));
+            jwt.verify(req.headers.authorization.substring(4), process.env.SECRET_KEY, function(err, dec) {
+                if (err) return res.status(403).json(err);
+                review.user_id = dec.id;
+                review.username = dec.username;
+                review.save(function(err) {
+                    if (err) {
+                        if (err.code === 11000) {
+                            return res.status(403).json({
+                                success: false, message: 'You have already posted a review.'
+                            });
+                        }
+                        else {
+                            return res.status(403).send(err);
+                        }
+                    }
+                    res.status(200).send({ success: true, message: "Added review." });
+                    trackDimension(movie.genre, '/reviews', 'POST Reviews', '1', movie.title, '1')
+                        .then(function (response) {
+                            console.log(response.body);
+                        })
+                });
+            });
+        });
+    })
+
+// router.all('*', function(req, res) {
+//     res.status(405).send({success: false, msg: 'Method Not Allowed'});
+// });
 
 app.use('/', router);
 app.listen(process.env.PORT || 8080);
