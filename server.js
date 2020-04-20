@@ -155,7 +155,19 @@ router.route('/movies/:movieId')
                     .exec(function (err, movie) {
                         if (err) return res.send(err);
                         if (movie && movie.length > 0) {
-                            return res.status(200).json({ success: true, result: movie });
+                            for (let i = 0; i < movie.length; i++) {
+                                let sum = 0;
+                                for (let j = 0; j < movie[i].reviews.length; j++) {
+                                    sum += movie[i].reviews[j].rating;
+                                }
+                                let average = (sum/movie[i].reviews.length).toFixed(1);
+
+                                if (movie[i].reviews.length > 0) {
+                                    movie[i] = Object.assign({}, movie[i],
+                                        {avgRating: average});
+                                }
+                            }
+                            return res.status(200).json(movie);
                         }else{
                             return res.status(400).json({ success: false, message: "Movie not found." });
                         }
@@ -164,6 +176,7 @@ router.route('/movies/:movieId')
                                 console.log(response.body);
                             })
                     });
+
             }else{
                 var id = req.params.movieId;
                 Movie.findById(id).select("title year genre actors").exec(function(err, movie) {
@@ -178,10 +191,10 @@ router.route('/movies/:movieId')
                             console.log(response.body);
                         })
                 });
+
             }
         }
     })
-
 
 router.route('/movies')
     .get(authJwtController.isAuthenticated, function (req, res) {
@@ -192,7 +205,22 @@ router.route('/movies')
                 .exec(function (err, movie) {
                     if (err) return res.send(err);
                     if (movie && movie.length > 0) {
-                        return res.status(200).json({ success: true, result: movie });
+                        for (let i = 0; i < movie.length; i++) {
+                            let sum = 0;
+                            for (let j = 0; j < movie[i].reviews.length; j++) {
+                                sum += movie[i].reviews[j].rating;
+                            }
+                            let average = (sum/movie[i].reviews.length).toFixed(1);
+
+                            if (movie[i].reviews.length > 0) {
+                                movie[i] = Object.assign({}, movie[i],
+                                    {avgRating: average});
+                            }
+                        }
+
+                        movie.sort((a,b) => {   return b.avgRating - a.avgRating;   });
+
+                        return res.status(200).json(movie);
                     }else{
                         return res.status(400).json({ success: false, message: "Movie not found." });
                     }
@@ -214,16 +242,15 @@ router.route('/movies')
         }
     })
     .post(authJwtController.isAuthenticated, function(req, res) {
-        if (!req.body.title || req.body.title === "" || !req.body.yearReleased || req.body.yearReleased === "" || !req.body.genre || req.body.genre === "" || !req.body.actors || req.body.actors === "") {
-            res.json({success: false, message: 'Please pass title, yearReleased, genre, and actors.'}).status(400);
-        }
-        else {
+        if (!(!req.body.title || !req.body.yearReleased || !req.body.genre || !req.body.actors)) {
             var movie = new Movie();
             movie.title = req.body.title;
             movie.yearReleased = req.body.yearReleased;
             movie.genre = req.body.genre;
             movie.actors = req.body.actors;
-            // save the user
+            if(req.body.image) movie.image = req.body.image;
+
+            // save the movie
             if (Movie.findOne({title: movie.title}) != null) {
                 movie.save(function (err) {
                     if (err) {
@@ -231,9 +258,11 @@ router.route('/movies')
                             res.json({success: false, message: 'That movie already exists. '});
                         else
                             return res.send(err);
-                    }else res.json({success: true, message: 'Movie Successfully UPLOADED'});
+                    } else res.json({success: true, message: 'Movie uploaded!'});
                 });
             }
+        } else {
+            res.json({success: false, message: 'Please pass title, yearReleased, genre, and actors.'}).status(400);
         }
     })
     .put(authJwtController.isAuthenticated, function (req, res) {
@@ -258,12 +287,13 @@ router.route('/movies')
                             if(err){
                                 return res.send(err);
                             }
-                            return res.json({success: true, message: "Movie Successfully UPDATED"});
+                            return res.json({success: true, message: "Movie successfully updated"});
                         });
                     }
                 }
             })
         }
+        //res.status(200).send({status: 200, msg: 'movie updated', headers: req.headers, query: req.query, env: process.env.UNIQUE_KEY});
     })
     .delete(function(req, res) {
             if (!req.body.username || !req.body.password) {
@@ -288,7 +318,7 @@ router.route('/movies')
                                     if(err){
                                         res.send(err);
                                     }
-                                    res.send({success: true, message: "Movie Successfully DELETED.", token: 'JWT ' + token,});
+                                    res.send({success: true, message: "Movie deleted."});
                                 });
                             }
 

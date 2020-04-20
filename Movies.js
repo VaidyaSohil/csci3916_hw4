@@ -15,7 +15,8 @@ var MovieSchema = new Schema({
     genre: {
         type: String, required: true, enum: ["Action", "Adventure", "Comedy", "Drama", "Fantasy", "Horror", "Mystery", "Thriller", "Western"]
     },
-    actors: {type: [String], required: true, validate: [(val)=> val.length==3, '{PATH} array must be of size 3']}
+    actors: {type: [String], required: true, validate: [(val)=> val.length==3, '{PATH} array must be of size 3']},
+    image: {type: String, default: "https://encrypted-tbn0.gstatic.com/images?q=tbn%3AANd9GcR6y2jmbjIhDlZONr-LIXPEGoQvyt5oxfvrB8xcRAeRUY-t7-99&usqp=CAU"}
 });
 
 

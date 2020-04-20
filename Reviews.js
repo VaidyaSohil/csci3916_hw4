@@ -14,7 +14,8 @@ var ReviewSchema = new Schema({
     username: { type: String, required: false },
     movie_id: { type: Schema.Types.ObjectId, ref: "Movie" },
     quote: { type: String, required: true },
-    rating: { type: Number, min: 1, max: 5 }
+    rating: { type: Number, min: 1, max: 5 },
+    image: {type: String, default: "https://cdn4.iconfinder.com/data/icons/computer-virus-1/32/13_Missing_File_document_lost_computer-512.png"}
 });
 
 ReviewSchema.index({
